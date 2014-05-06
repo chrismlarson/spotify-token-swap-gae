@@ -16,9 +16,7 @@
 #
 import webapp2
 import urllib
-import urllib2
 import json
-import logging
 from google.appengine.api import urlfetch
 
 
