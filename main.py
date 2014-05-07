@@ -28,13 +28,14 @@ k_client_callback_url = "spotify-ios-sdk-beta://callback"
 
 class SpotifyTokenSwap(webapp2.RequestHandler):
     def get(self):
+        code = self.request.get('code')
         url = 'https://ws.spotify.com/oauth/token'
         params = {
             'grant_type': 'authorization_code',
             'client_id': k_client_id,
             'client_secret': k_client_secret,
             'redirect_uri': k_client_callback_url,
-            'code': None
+            'code': code
         }
 
         encoded_params = urllib.urlencode(params)
@@ -50,4 +51,4 @@ class SpotifyTokenSwap(webapp2.RequestHandler):
 
 app = webapp2.WSGIApplication([
                                   ('/swap', SpotifyTokenSwap)
-                              ], debug=True)
+                              ], debug=False)
