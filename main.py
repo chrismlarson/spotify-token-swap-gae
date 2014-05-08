@@ -16,7 +16,6 @@
 #
 import webapp2
 import urllib
-import json
 from google.appengine.api import urlfetch
 
 
@@ -27,7 +26,7 @@ k_client_callback_url = "spotify-ios-sdk-beta://callback"
 
 
 class SpotifyTokenSwap(webapp2.RequestHandler):
-    def get(self):
+    def post(self):
         code = self.request.get('code')
         url = 'https://ws.spotify.com/oauth/token'
         params = {
@@ -46,7 +45,7 @@ class SpotifyTokenSwap(webapp2.RequestHandler):
         self.response.headers.add_header("Access-Control-Allow-Origin", '*')
         self.response.headers['Content-Type'] = 'application/json'
         self.response.status = response.status_code
-        self.response.write(json.dumps(response.content))
+        self.response.write(response.content)
 
 
 app = webapp2.WSGIApplication([
