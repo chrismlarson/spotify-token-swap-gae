@@ -15,32 +15,50 @@
 # limitations under the License.
 #
 import webapp2
+import base64
 import urllib
+import json
+from UserToken import UserToken
 from google.appengine.api import urlfetch
 
-
 # CHANGE these values to your own
-k_client_id = "spotify-ios-sdk-beta"
-k_client_secret = "ba95c775e4b39b8d60b27bcfced57ba473c10046"
-k_client_callback_url = "spotify-ios-sdk-beta://callback"
+k_client_id = "a525cd6c5da744c8aa5fb0c048164bd1"
+k_client_secret = "47adca3cea1f4e019246539994a47c2d"
+k_client_callback_url = "spotify-sample-auth-playback-login://callback"
+
+# Spotify endpoints
+k_spotify_accounts_endpoint = "https://accounts.spotify.com"
+k_spotify_profile_endpoint = "https://api.spotify.com"
 
 
 class SpotifyTokenSwap(webapp2.RequestHandler):
     def post(self):
-        code = self.request.get('code')
-        url = 'https://ws.spotify.com/oauth/token'
+        auth_code = self.request.get('code')
+        auth_header = "Basic " + base64.b64encode(k_client_id + b":" + k_client_secret)
         params = {
-            'grant_type': 'authorization_code',
-            'client_id': k_client_id,
-            'client_secret': k_client_secret,
-            'redirect_uri': k_client_callback_url,
-            'code': code
+            "grant_type": "authorization_code",
+            "redirect_uri": k_client_callback_url,
+            "code": auth_code
         }
-
         encoded_params = urllib.urlencode(params)
-        response = urlfetch.fetch(url=url,
+
+        response = urlfetch.fetch(url=k_spotify_accounts_endpoint + "/api/token",
                                   payload=encoded_params,
-                                  method=urlfetch.POST)
+                                  method=urlfetch.POST,
+                                  headers={"Authorization": auth_header},
+                                  validate_certificate=True)
+
+        if response.status_code == 200:
+            token_data = json.loads(response.content)
+            profile_data = get_profile_data(token_data["access_token"])
+            user_token_with_matching_username = UserToken.query(UserToken.username == profile_data["id"]).fetch(1)
+            if user_token_with_matching_username:
+                user_token_with_matching_username[0].key.delete()
+            # Store user ID and refresh token in DB, so that we can retrieve it later.
+            new_user_token = UserToken()
+            new_user_token.username = profile_data["id"]
+            new_user_token.refresh_token = token_data["refresh_token"]
+            new_user_token.put()
 
         self.response.headers.add_header("Access-Control-Allow-Origin", '*')
         self.response.headers['Content-Type'] = 'application/json'
@@ -48,6 +66,39 @@ class SpotifyTokenSwap(webapp2.RequestHandler):
         self.response.write(response.content)
 
 
+class SpotifyTokenRefresh(webapp2.RequestHandler):
+    def post(self):
+        spotify_id = self.request.get('id')
+        auth_header = "Basic " + base64.b64encode(k_client_id + b":" + k_client_secret)
+        user_token_with_matching_username = UserToken.query(UserToken.username == spotify_id).fetch(1)
+        refresh_token = user_token_with_matching_username[0].refresh_token
+        params = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token
+        }
+        encoded_params = urllib.urlencode(params)
+
+        response = urlfetch.fetch(url=k_spotify_accounts_endpoint + "/api/token",
+                                  payload=encoded_params,
+                                  method=urlfetch.POST,
+                                  headers={"Authorization": auth_header},
+                                  validate_certificate=True)
+
+        self.response.headers.add_header("Access-Control-Allow-Origin", '*')
+        self.response.headers['Content-Type'] = 'application/json'
+        self.response.status = response.status_code
+        self.response.write(response.content)
+
+
+def get_profile_data(access_token):
+    response = urlfetch.fetch(url=k_spotify_profile_endpoint + "/v1/me",
+                              method=urlfetch.GET,
+                              headers={"Authorization": "Bearer " + access_token},
+                              validate_certificate=True)
+    return json.loads(response.content)
+
+
 app = webapp2.WSGIApplication([
-                                  ('/swap', SpotifyTokenSwap)
+                                  ('/swap', SpotifyTokenSwap),
+                                  ('/refresh', SpotifyTokenRefresh)
                               ], debug=False)
