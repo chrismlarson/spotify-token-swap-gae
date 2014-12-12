@@ -18,17 +18,19 @@ import webapp2
 import base64
 import urllib
 import json
-from UserToken import UserToken
+import simplecrypt
 from google.appengine.api import urlfetch
 
-# CHANGE these values to your own
+# CHANGE these values to your own that come from Spotify Dev
 k_client_id = ""
 k_client_secret = ""
 k_client_callback_url = ""
 
+# CHANGE this to a random value that you create of reasonable length for security
+k_encryption_secret = ""
+
 # Spotify endpoints
 k_spotify_accounts_endpoint = "https://accounts.spotify.com"
-k_spotify_profile_endpoint = "https://api.spotify.com"
 
 
 class SpotifyTokenSwap(webapp2.RequestHandler):
@@ -50,15 +52,11 @@ class SpotifyTokenSwap(webapp2.RequestHandler):
 
         if response.status_code == 200:
             token_data = json.loads(response.content)
-            profile_data = get_profile_data(token_data["access_token"])
-            user_token_with_matching_username = UserToken.query(UserToken.username == profile_data["id"]).fetch(1)
-            if user_token_with_matching_username:
-                user_token_with_matching_username[0].key.delete()
-            # Store user ID and refresh token in DB, so that we can retrieve it later.
-            new_user_token = UserToken()
-            new_user_token.username = profile_data["id"]
-            new_user_token.refresh_token = token_data["refresh_token"]
-            new_user_token.put()
+            refresh_token = token_data["refresh_token"]
+            encrypted_token = simplecrypt.encrypt(k_encryption_secret, refresh_token)
+            base64_encrypted_token = base64.encodestring(encrypted_token)
+            token_data["refresh_token"] = base64_encrypted_token
+            response.content = json.dumps(token_data)
 
         self.response.headers.add_header("Access-Control-Allow-Origin", '*')
         self.response.headers['Content-Type'] = 'application/json'
@@ -68,10 +66,12 @@ class SpotifyTokenSwap(webapp2.RequestHandler):
 
 class SpotifyTokenRefresh(webapp2.RequestHandler):
     def post(self):
-        spotify_id = self.request.get('id')
+        base64_encrypted_token = self.request.get('refresh_token')
         auth_header = "Basic " + base64.b64encode(k_client_id + b":" + k_client_secret)
-        user_token_with_matching_username = UserToken.query(UserToken.username == spotify_id).fetch(1)
-        refresh_token = user_token_with_matching_username[0].refresh_token
+
+        encrypted_token = base64.decodestring(base64_encrypted_token)
+        refresh_token = simplecrypt.decrypt(k_encryption_secret, encrypted_token)
+
         params = {
             "grant_type": "refresh_token",
             "refresh_token": refresh_token
@@ -88,14 +88,6 @@ class SpotifyTokenRefresh(webapp2.RequestHandler):
         self.response.headers['Content-Type'] = 'application/json'
         self.response.status = response.status_code
         self.response.write(response.content)
-
-
-def get_profile_data(access_token):
-    response = urlfetch.fetch(url=k_spotify_profile_endpoint + "/v1/me",
-                              method=urlfetch.GET,
-                              headers={"Authorization": "Bearer " + access_token},
-                              validate_certificate=True)
-    return json.loads(response.content)
 
 
 app = webapp2.WSGIApplication([
